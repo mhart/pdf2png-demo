@@ -1,0 +1,5 @@
+.aws-sam
+samconfig.toml
+src/main
+test/output
+test/aws-lambda-rie

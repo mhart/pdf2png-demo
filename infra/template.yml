@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: pdf2png-app
+  ProjectRepository:
+    Type: String
+    Default: https://github.com/my/pdf2png-project
+
+Resources:
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ProjectName
+      ImageScanningConfiguration:
+        scanOnPush: true
+      ImageTagMutability: MUTABLE
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ProjectName
+      ServiceRole: !Ref CodeBuildRole
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: PROJECT_NAME
+            Value: !Ref ProjectName
+          - Name: DOCKER_SERVER
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+          - Name: IMAGE_URI_BASE
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}
+      Source:
+        Type: GITHUB
+        Location: !Ref ProjectRepository
+      Triggers:
+        Webhook: true
+        FilterGroups:
+          - - Type: EVENT
+              Pattern: PUSH
+            - Type: HEAD_REF
+              Pattern: ^refs/tags/v\d+$
+      Cache:
+        Type: LOCAL
+        Modes:
+          - LOCAL_DOCKER_LAYER_CACHE
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+      Artifacts:
+        Type: NO_ARTIFACTS
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LogsAccessOnOurProjectOnly
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: logs:*
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ProjectName}:*
+        - PolicyName: EcrAccessOnOurRepositoryOnly
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*" # Does not operate on a specific resource
+              - Effect: Allow
+                Action: ecr:*
+                Resource: !GetAtt EcrRepository.Arn
+        - PolicyName: CloudFormationAccessOnOurProjectOnly
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: cloudformation:*
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}/*
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
+        - PolicyName: IamAccessOnOurProjectOnly
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: iam:*
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/${ProjectName}-*
+        - PolicyName: LambdaAccessOnOurProjectOnly
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: lambda:*
+                Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-*
+        - PolicyName: S3AccessOnOurProjectOnly
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: s3:*
+                Resource: !Sub arn:aws:s3:::${ProjectName}-*

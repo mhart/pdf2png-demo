@@ -1,0 +1,28 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password | docker login --username AWS --password-stdin $DOCKER_SERVER
+  build:
+    commands:
+      - export GIT_TAG=${CODEBUILD_WEBHOOK_HEAD_REF#refs/tags/}
+      - export IMAGE_URI=${IMAGE_URI_BASE}:${GIT_TAG}
+
+      - echo Building Docker image as ${IMAGE_URI}...
+      - docker build -t ${IMAGE_URI} src
+
+      - echo Pushing Docker image...
+      - docker push ${IMAGE_URI}
+
+      - echo Deploying project...
+      - |
+        aws cloudformation deploy \
+          --stack-name $PROJECT_NAME \
+          --template-file template.yml \
+          --parameter-overrides ImageUri=${IMAGE_URI} \
+          --capabilities CAPABILITY_IAM
